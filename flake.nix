@@ -17,6 +17,7 @@
           pyusb
           psutil
           zeroconf
+          matplotlib
         ]))
       ];
     };
