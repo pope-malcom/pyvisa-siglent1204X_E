@@ -1,25 +1,19 @@
 # Script to collect data on SiPM channels
 import pyvisa
 import time
-import matplotlib.pyplot as pl
+from datetime import datetime
+import os
+import pandas as pd
 
 ipaddr = "TCPIP0::192.168.1.114::INSTR"
 
-def main():
-    _rm = pyvisa.ResourceManager()
-    osc = _rm.open_resource(ipaddr)
+out_path = os.path.expanduser("~/waveform_records/")
+file_label = "test"
 
-    # Setup resource
-    osc.timeout = 30000
-    osc.chunk_size = 20*1024*1024 # From siglent docs
+runs = 10
 
-    # Reset scope
-    osc.write("*RST")
-    osc.query("*OPC?")
-
-    # Disable reply header
-    osc.write("CHDR OFF")
-
+# Place scope configuration instructions here
+def scope_config(osc):
     # Configure timebase
     osc.write("TDIV 500uS")
 
@@ -33,61 +27,102 @@ def main():
     # Configure trigger
     osc.write("TRSE EDGE,SR,C2,HT,OFF")
     osc.write("C2:TRLV 32mV")
-    osc.write("TRMD SINGLE")
-    osc.query("INR?") # Reset state register
 
 
-    # Wait for trigger
-    wait_for_trig(osc)
-    c1_wf = read_waveform("C1", osc)
-    c2_wf = read_waveform("C2", osc)
-
-    # Populate time series
-    samp_rate = float(osc.query("SARA?"))
-    tdiv = float(osc.query("TDIV?"))
-    time_series = []
-    for idx in range(0, len(c1_wf)):
-        time_data = -(tdiv*14/2)+idx*(1/samp_rate)
-        time_series.append(time_data)
+def main():
+    print("[Connecting to scope...", end='', flush=True)
+    _rm = pyvisa.ResourceManager()
+    osc = _rm.open_resource(ipaddr)
+    print("Connected]")
 
 
-    # Plot waveforms
-    pl.figure(figsize=(7,5))
-    pl.ylim(-5,5)
-    pl.plot(time_series, c1_wf, markersize=2, label=u"Y-T")
-    pl.plot(time_series, c2_wf, markersize=2, label=u"Y-T")
-    pl.grid()
-    pl.show()
+    # Setup resource
+    osc.timeout = 30000
+    osc.chunk_size = 20*1024*1024 # From siglent docs
 
+    # Reset scope
+    print("[Reseting scope........", end='', flush=True)
+    osc.write("*RST")
+    osc.query("*OPC?")
+    print("Reset]")
 
+    # Disable reply header
+    osc.write("CHDR OFF")
 
-def read_waveform(chan, osc):
+    # Load channel configuration
+    scope_config(osc)
+    
+    # Create directory to hold output data
+    os.makedirs(out_path)
+    
+    print("Starting measurements")
+    for run in range(1, runs+1):
+        print("  Run " + str(run).zfill(4) + ":", end='', flush=True)
+
+        # Set trigger
+        osc.write("TRMD SINGLE")
+
+        # Create dataframe to hold data
+        waveforms_df = pd.DataFrame()
+
+        # Wait for trigger
+        print(" [Waiting for trig...", end='', flush=True)
+        wait_for_trig(osc)
+        print("Done]", end='', flush=True)
+        print("[Reading waveform...", end='', flush=True)
+
+        # Read waveforms and add to data frame
+        for chan in ["C1", "C2", "C3", "C4"]:
+            if osc.query(chan+":TRACE?").rstrip() == "ON":
+                read_waveform(osc, chan, waveforms_df)
+
+        # Populate time series
+        samp_rate = float(osc.query("SARA?"))
+        tdiv = float(osc.query("TDIV?"))
+        time_series = []
+        for idx in range(0, len(waveforms_df.index)):
+            time_data = -(tdiv*14/2)+idx*(1/samp_rate)
+            time_series.append(time_data)
+
+        waveforms_df.insert(0, "Time", time_series)
+    
+        time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_id = "run_" + str(run).zfill(4)
+
+        file_name = time_stamp + "-" + file_label + "-" + run_id
+
+        waveforms_df.to_csv(out_path + file_name + ".csv")
+        print("Done]")
+    
+    print("Finished, files located at " + out_path)
+
+# Read a waveform from the scope, writing the data to a dataframe
+def read_waveform(osc, chan, df):
     # Get voltage division and offset
     vdiv = float(osc.query(chan + ":VDIV?"))
     ofst = float(osc.query(chan + ":OFST?"))
 
-    osc.write(chan + ":WF? DAT2")
-    
     #Read the waveform from scope, removing header and \n\n
+    osc.write(chan + ":WF? DAT2")
     recv = list(osc.read_raw())[16:]
     recv.pop()
     recv.pop()
 
-    #Convert waveform to voltage values, as per siglent programming guide
+    # Convert waveform to voltage values, as per siglent programming guide
     for idx in range(0,len(recv)):
         if recv[idx] > 127:
             recv[idx] -= 256
         recv[idx] = (recv[idx]*(vdiv/25))-ofst
 
-    return recv
+    df[chan] = recv
+
+    return
 
 
 # Wait for scope to aquire a waveform
 def wait_for_trig(osc):
-    print("Waiting for trigger...", end='')
     while (osc.query("SAST?").rstrip() != "Stop"):
         time.sleep(0.2)
-    print("Triggered!")
 
 
 if __name__=='__main__':
