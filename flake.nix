@@ -16,7 +16,6 @@
           pyvisa-py
           pyusb
           psutil
-          zeroconf
           matplotlib
         ]))
       ];
