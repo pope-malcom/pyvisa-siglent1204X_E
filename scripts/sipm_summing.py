@@ -1,9 +1,10 @@
 # Script to collect data on SiPM channels
-import pyvisa
+import os
 import time
 from datetime import datetime
-import os
+
 import pandas as pd
+import pyvisa
 
 ipaddr = "TCPIP0::192.168.93.2::INSTR"
 
@@ -11,6 +12,7 @@ out_path = os.path.expanduser("~/waveform_records/")
 file_label = "vbias_42-ch1_h3-ch2_h4"
 
 runs = 20
+
 
 # Place scope configuration instructions here
 def scope_config(osc):
@@ -20,28 +22,27 @@ def scope_config(osc):
     # Configure channels
     osc.write("C1:TRACE ON")
     osc.write("C1:VDIV 200mV")
-    
+
     osc.write("C2:TRACE ON")
     osc.write("C2:VDIV 200mV")
-    
+
     # Configure trigger
     osc.write("TRSE EDGE,SF,C1,HT,OFF")
     osc.write("C1:TRLV -100mV")
 
 
 def main():
-    print("[Connecting to scope...", end='', flush=True)
+    print("[Connecting to scope...", end="", flush=True)
     _rm = pyvisa.ResourceManager()
     osc = _rm.open_resource(ipaddr)
     print("Connected]")
 
-
     # Setup resource
     osc.timeout = 30000
-    osc.chunk_size = 20*1024*1024 # From siglent docs
+    osc.chunk_size = 20 * 1024 * 1024  # From siglent docs
 
     # Reset scope
-    print("[Reseting scope........", end='', flush=True)
+    print("[Reseting scope........", end="", flush=True)
     osc.write("*RST")
     osc.query("*OPC?")
     print("Reset]")
@@ -51,13 +52,13 @@ def main():
 
     # Load channel configuration
     scope_config(osc)
-    
+
     # Create directory to hold output data
     os.makedirs(out_path)
-    
+
     print("Starting measurements")
-    for run in range(1, runs+1):
-        print("  Run " + str(run).zfill(4) + ":", end='', flush=True)
+    for run in range(1, runs + 1):
+        print("  Run " + str(run).zfill(4) + ":", end="", flush=True)
 
         # Set trigger
         osc.write("TRMD SINGLE")
@@ -66,14 +67,14 @@ def main():
         waveforms_df = pd.DataFrame()
 
         # Wait for trigger
-        print(" [Waiting for trig...", end='', flush=True)
+        print(" [Waiting for trig...", end="", flush=True)
         wait_for_trig(osc)
-        print("Done]", end='', flush=True)
-        print("[Reading waveform...", end='', flush=True)
+        print("Done]", end="", flush=True)
+        print("[Reading waveform...", end="", flush=True)
 
         # Read waveforms and add to data frame
         for chan in ["C1", "C2", "C3", "C4"]:
-            if osc.query(chan+":TRACE?").rstrip() == "ON":
+            if osc.query(chan + ":TRACE?").rstrip() == "ON":
                 read_waveform(osc, chan, waveforms_df)
 
         # Populate time series
@@ -81,11 +82,11 @@ def main():
         tdiv = float(osc.query("TDIV?"))
         time_series = []
         for idx in range(0, len(waveforms_df.index)):
-            time_data = -(tdiv*14/2)+idx*(1/samp_rate)
+            time_data = -(tdiv * 14 / 2) + idx * (1 / samp_rate)
             time_series.append(time_data)
 
         waveforms_df.insert(0, "Time", time_series)
-    
+
         time_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_id = "run_" + str(run).zfill(4)
 
@@ -93,8 +94,9 @@ def main():
 
         waveforms_df.to_csv(out_path + file_name + ".csv")
         print("Done]")
-    
+
     print("Finished, files located at " + out_path)
+
 
 # Read a waveform from the scope, writing the data to a dataframe
 def read_waveform(osc, chan, df):
@@ -102,17 +104,17 @@ def read_waveform(osc, chan, df):
     vdiv = float(osc.query(chan + ":VDIV?"))
     ofst = float(osc.query(chan + ":OFST?"))
 
-    #Read the waveform from scope, removing header and \n\n
+    # Read the waveform from scope, removing header and \n\n
     osc.write(chan + ":WF? DAT2")
     recv = list(osc.read_raw())[16:]
     recv.pop()
     recv.pop()
 
     # Convert waveform to voltage values, as per siglent programming guide
-    for idx in range(0,len(recv)):
+    for idx in range(0, len(recv)):
         if recv[idx] > 127:
             recv[idx] -= 256
-        recv[idx] = (recv[idx]*(vdiv/25))-ofst
+        recv[idx] = (recv[idx] * (vdiv / 25)) - ofst
 
     df[chan] = recv
 
@@ -121,9 +123,9 @@ def read_waveform(osc, chan, df):
 
 # Wait for scope to aquire a waveform
 def wait_for_trig(osc):
-    while (osc.query("SAST?").rstrip() != "Stop"):
+    while osc.query("SAST?").rstrip() != "Stop":
         time.sleep(0.2)
 
 
-if __name__=='__main__':
+if __name__ == "__main__":
     main()
