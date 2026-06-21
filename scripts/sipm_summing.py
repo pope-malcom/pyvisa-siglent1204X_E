@@ -5,28 +5,28 @@ from datetime import datetime
 import os
 import pandas as pd
 
-ipaddr = "TCPIP0::192.168.1.114::INSTR"
+ipaddr = "TCPIP0::192.168.93.2::INSTR"
 
 out_path = os.path.expanduser("~/waveform_records/")
-file_label = "test"
+file_label = "vbias_42-ch1_h3-ch2_h4"
 
-runs = 10
+runs = 20
 
 # Place scope configuration instructions here
 def scope_config(osc):
     # Configure timebase
-    osc.write("TDIV 500uS")
+    osc.write("TDIV 200nS")
 
     # Configure channels
     osc.write("C1:TRACE ON")
-    osc.write("C1:VDIV 1V")
+    osc.write("C1:VDIV 200mV")
     
     osc.write("C2:TRACE ON")
-    osc.write("C2:VDIV 20mV")
+    osc.write("C2:VDIV 200mV")
     
     # Configure trigger
-    osc.write("TRSE EDGE,SR,C2,HT,OFF")
-    osc.write("C2:TRLV 32mV")
+    osc.write("TRSE EDGE,SF,C1,HT,OFF")
+    osc.write("C1:TRLV -100mV")
 
 
 def main():
